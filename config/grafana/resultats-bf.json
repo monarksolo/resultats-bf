@@ -1,0 +1,103 @@
+{
+  "uid": "resultats-bf",
+  "title": "RÉSULTATS-BF — plateforme",
+  "tags": ["resultats-bf"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Débit total servi par les répartiteurs (requêtes/s)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "débit total",
+          "expr": "sum(rate(haproxy_frontend_http_requests_total{proxy=\"public\"}[15s]))" },
+        { "refId": "B", "legendFormat": "réponses 5xx",
+          "expr": "sum(rate(haproxy_frontend_http_responses_total{proxy=\"public\",code=\"5xx\"}[15s]))" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Débit par serveur applicatif (requêtes/s)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{server}}",
+          "expr": "sum by (server) (rate(haproxy_server_http_responses_total{proxy=\"applis\"}[15s]))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "state-timeline",
+      "title": "État des serveurs applicatifs vu par HAProxy (sonde /sante)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [ { "type": "value", "options": {
+            "0": { "text": "HORS SERVICE", "color": "red" },
+            "1": { "text": "EN SERVICE", "color": "green" } } } ],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{server}}",
+          "expr": "max by (server) (haproxy_server_status{proxy=\"applis\",state=\"UP\"})" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "state-timeline",
+      "title": "Machines joignables (node_exporter)",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [ { "type": "value", "options": {
+            "0": { "text": "ÉTEINTE", "color": "red" },
+            "1": { "text": "ALLUMÉE", "color": "green" } } } ],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{noeud}}", "expr": "up{job=\"noeuds\"}" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Utilisation CPU par machine (%)",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{noeud}}",
+          "expr": "100 * (1 - avg by (noeud) (rate(node_cpu_seconds_total{mode=\"idle\"}[15s])))" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Temps de réponse moyen des serveurs applicatifs",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{server}}",
+          "expr": "max by (server) (haproxy_server_response_time_average_seconds{proxy=\"applis\"})" }
+      ]
+    }
+  ]
+}

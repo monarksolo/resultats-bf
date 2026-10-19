@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RÉSULTATS-BF</title>
+<!-- Interface graphique de RÉSULTATS-BF. Fichier statique servi par HAProxy (pas par
+     les serveurs applicatifs) ; il n'utilise que les points d'entrée publics :
+     /resultat, /sante, /info, /etat-lb;csv (état HAProxy) et /noeuds.json (carte). -->
+<style>
+:root {
+  --fond: #f3f4f1; --carte: #fff; --texte: #1b2220; --doux: #5f6965; --bord: #dfe3de;
+  --ok: #12804a; --ok-fond: #e2f3e9; --ko: #c3302b; --ko-fond: #fbe8e6;
+  --att: #a8660c; --att-fond: #fdf1d8; --inc: #8a938f; --inc-fond: #eef0ee;
+  --accent: #0e5c3a; --rouge-bf: #ef2b2d; --vert-bf: #009e49; --jaune-bf: #fcd116;
+  --ombre: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark) { :root {
+  --fond: #111513; --carte: #1a201d; --texte: #e6ebe8; --doux: #98a39e; --bord: #2b332f;
+  --ok: #3fcf84; --ok-fond: #15332a; --ko: #ff6d64; --ko-fond: #3b1e1c;
+  --att: #f2b54a; --att-fond: #3a2d14; --inc: #77827d; --inc-fond: #222926;
+  --accent: #3fcf84; --ombre: none;
+} }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fond); color: var(--texte);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.drapeau { height: 6px; background: linear-gradient(var(--rouge-bf) 50%, var(--vert-bf) 50%); }
+header { max-width: 1240px; margin: 0 auto; padding: 22px 16px 8px;
+  display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 26px; letter-spacing: .5px; display: flex; align-items: center; gap: 10px; }
+h1 .etoile { color: var(--jaune-bf); font-size: 22px; text-shadow: 0 0 1px rgba(0,0,0,.35); }
+header p { margin: 2px 0 0; color: var(--doux); }
+h2 { margin: 0 0 12px; font-size: 17px; }
+h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--doux); }
+main { max-width: 1240px; margin: 0 auto; padding: 8px 16px 32px; display: grid; gap: 16px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-areas: "consulter infra" "trafic infra" "journal infra"; align-items: start; }
+@media (max-width: 920px) { main { grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "consulter" "infra" "trafic" "journal"; } }
+.carte { background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; padding: 18px; box-shadow: var(--ombre); }
+#consulter { grid-area: consulter; } #infra { grid-area: infra; } #trafic { grid-area: trafic; } #journal { grid-area: journal; }
+.titre { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.doux { color: var(--doux); } .petit { font-size: 13px; }
+label { display: block; font-size: 13px; color: var(--doux); margin-bottom: 6px; }
+.ligne { display: flex; gap: 8px; flex-wrap: wrap; }
+input, select, button { font: inherit; border-radius: 8px; border: 1px solid var(--bord); padding: 9px 12px;
+  background: var(--carte); color: var(--texte); }
+input { flex: 1 1 160px; min-width: 0; text-transform: uppercase; letter-spacing: 1px; }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { cursor: pointer; background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+@media (prefers-color-scheme: dark) { button { color: #08130d; } }
+button.sec { background: transparent; color: var(--texte); border-color: var(--bord); font-weight: 500; }
+button.arret { background: var(--ko); border-color: var(--ko); }
+.pastille { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+  font-weight: 600; background: var(--inc-fond); color: var(--inc); }
+.pastille::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.pastille.ok { background: var(--ok-fond); color: var(--ok); }
+.pastille.ko { background: var(--ko-fond); color: var(--ko); }
+.pastille.att { background: var(--att-fond); color: var(--att); }
+.pastille.ok::before { animation: pouls 2s infinite; }
+@keyframes pouls { 50% { opacity: .35; } }
+
+/* Résultat */
+.res { margin-top: 16px; }
+.res.vide { color: var(--doux); font-size: 14px; }
+.res-tete { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.nom { font-size: 20px; font-weight: 700; line-height: 1.25; }
+.badge { padding: 5px 12px; border-radius: 6px; font-weight: 700; letter-spacing: 1px; font-size: 13px; white-space: nowrap; }
+.badge.ok { background: var(--ok-fond); color: var(--ok); } .badge.ko { background: var(--ko-fond); color: var(--ko); }
+.moy { margin: 14px 0 6px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.moy .val { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.mention { margin-left: auto; font-weight: 600; color: var(--doux); }
+.jauge { position: relative; height: 10px; border-radius: 5px; background: var(--inc-fond); overflow: hidden; }
+.jauge .rempli { height: 100%; border-radius: 5px; transition: width .6s ease; }
+.jauge .seuil { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--texte); opacity: .45; }
+.graduation { display: flex; justify-content: space-between; font-size: 11px; color: var(--doux); margin-top: 3px; }
+.trace { margin-top: 12px; font-size: 13px; color: var(--doux); }
+.trace b { color: var(--texte); }
+.erreur { color: var(--ko); }
+
+/* Infrastructure */
+.etage { padding: 14px 0; border-top: 1px dashed var(--bord); }
+.etage:first-of-type { border-top: 0; padding-top: 4px; }
+.etage-tete { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rang { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.noeud { border: 1px solid var(--bord); border-left: 4px solid var(--inc); border-radius: 8px; padding: 10px 12px;
+  background: var(--carte); transition: box-shadow .3s, transform .3s; }
+.noeud.ok { border-left-color: var(--ok); } .noeud.ko { border-left-color: var(--ko); background: var(--ko-fond); }
+.noeud.att { border-left-color: var(--att); background: var(--att-fond); }
+.noeud.flash { box-shadow: 0 0 0 3px var(--accent); transform: translateY(-1px); }
+.n-tete { display: flex; align-items: baseline; gap: 8px; }
+.n-tete strong { font-size: 15px; } .ip { margin-left: auto; font-size: 12px; color: var(--doux); font-variant-numeric: tabular-nums; }
+.n-etat { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.noeud.ok .n-etat { color: var(--ok); } .noeud.ko .n-etat { color: var(--ko); }
+.noeud.att .n-etat { color: var(--att); } .noeud.inc .n-etat { color: var(--doux); }
+.n-meta { font-size: 12px; color: var(--doux); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.fleche { text-align: center; color: var(--doux); font-size: 12px; margin: 2px 0 -6px; }
+
+/* Trafic */
+.chiffres { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 12px; }
+.chiffre { background: var(--fond); border-radius: 8px; padding: 8px 10px; }
+.chiffre b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.chiffre span { font-size: 12px; color: var(--doux); }
+@media (max-width: 480px) { .chiffres { grid-template-columns: repeat(2, 1fr); } }
+canvas { width: 100%; height: 90px; display: block; }
+.legende { display: flex; gap: 14px; font-size: 12px; color: var(--doux); margin: 4px 0 10px; }
+.legende i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.barre { display: grid; grid-template-columns: 52px 1fr 92px; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0; }
+.barre .fond { height: 12px; border-radius: 6px; background: var(--inc-fond); overflow: hidden; }
+.barre .plein { height: 100%; background: var(--accent); border-radius: 6px; transition: width .4s; }
+.barre .n { text-align: right; color: var(--doux); font-variant-numeric: tabular-nums; }
+
+/* Journal */
+#evts { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+#evts li { display: flex; gap: 10px; padding: 6px 0; border-top: 1px solid var(--bord); font-size: 13px; }
+#evts li:first-child { border-top: 0; }
+#evts time { color: var(--doux); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#evts .ok { color: var(--ok); } #evts .ko { color: var(--ko); } #evts .att { color: var(--att); }
+footer { max-width: 1240px; margin: 0 auto; padding: 0 16px 28px; font-size: 12px; color: var(--doux); }
+footer a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="drapeau" aria-hidden="true"></div>
+<header>
+  <div>
+    <h1><span class="etoile" aria-hidden="true">★</span>RÉSULTATS-BF</h1>
+    <p>Consultation des résultats d'examen · plateforme résiliente et scalable</p>
+  </div>
+  <div id="global" class="pastille" role="status" aria-live="polite">Connexion…</div>
+</header>
+
+<main>
+  <section class="carte" id="consulter">
+    <h2>Consulter un résultat</h2>
+    <form id="form">
+      <label for="matricule">Numéro de matricule</label>
+      <div class="ligne">
+        <input id="matricule" name="matricule" autocomplete="off" spellcheck="false" placeholder="BF000042" maxlength="16" required>
+        <button type="submit">Consulter</button>
+        <button type="button" class="sec" id="hasard">Au hasard</button>
+      </div>
+    </form>
+    <div id="res" class="res vide" aria-live="polite">Matricules disponibles : de BF000001 à BF050000.</div>
+  </section>
+
+  <section class="carte" id="infra">
+    <div class="titre"><h2>Infrastructure en direct</h2><span id="maj" class="doux petit"></span></div>
+    <div class="etage">
+      <div class="etage-tete"><h3>Répartiteurs de charge</h3><span id="vip" class="doux petit"></span></div>
+      <div id="lbs" class="rang"></div>
+    </div>
+    <div class="fleche" aria-hidden="true">▼ HTTP · sonde /sante chaque seconde</div>
+    <div class="etage">
+      <div class="etage-tete"><h3>Serveurs applicatifs sans état</h3><span id="nb-apps" class="doux petit"></span></div>
+      <div id="apps" class="rang"></div>
+    </div>
+    <div class="fleche" aria-hidden="true">▼ SQL · réplication en flux</div>
+    <div class="etage">
+      <h3>Bases de données PostgreSQL</h3>
+      <div id="bdds" class="rang"></div>
+    </div>
+  </section>
+
+  <section class="carte" id="trafic">
+    <div class="titre">
+      <h2>Trafic simulé</h2>
+      <div class="ligne">
+        <label for="debit" class="doux" style="margin:auto 0">Débit</label>
+        <select id="debit"><option value="5">5 req/s</option><option value="10" selected>10 req/s</option><option value="20">20 req/s</option></select>
+        <button id="go" type="button">Démarrer</button>
+      </div>
+    </div>
+    <p class="doux petit" style="margin:0 0 10px">Envoie des requêtes à <code>/info</code> depuis ce navigateur. Lancez une panne
+      (<code>vagrant halt app1</code>) pendant le trafic pour observer la reprise.</p>
+    <div class="chiffres">
+      <div class="chiffre"><b id="c-env">0</b><span>envoyées</span></div>
+      <div class="chiffre"><b id="c-ok">0</b><span>réussies</span></div>
+      <div class="chiffre"><b id="c-err">0</b><span>en erreur</span></div>
+      <div class="chiffre"><b id="c-taux">—</b><span>disponibilité</span></div>
+    </div>
+    <canvas id="courbe" aria-label="Requêtes par seconde sur la dernière minute"></canvas>
+    <div class="legende"><span><i style="background:var(--ok)"></i>réussies / s</span><span><i style="background:var(--ko)"></i>en erreur / s</span><span style="margin-left:auto">60 dernières secondes</span></div>
+    <div id="barres"></div>
+  </section>
+
+  <section class="carte" id="journal">
+    <h2>Journal des événements</h2>
+    <ol id="evts"><li><time></time><span class="doux">En attente des premières mesures…</span></li></ol>
+  </section>
+</main>
+<footer id="pied"></footer>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const heure = () => new Date().toLocaleTimeString("fr-FR");
+const note = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+let carte = { noeuds: [], extensions: [] };
+let serveurs = {};            // état HAProxy de chaque serveur applicatif
+let repartiteur = null;       // répartiteur qui a traité la dernière requête
+let primaire = null;          // base qui a répondu à la dernière sonde /sante
+let etatGlobal = null;
+const passages = {};          // dernier passage d'une requête par serveur (effet visuel)
+const versions = {};
+
+async function requete(url, delai = 3000) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), delai);
+  try { return await fetch(url, { cache: "no-store", signal: ctl.signal }); } finally { clearTimeout(t); }
+}
+const role = r => carte.noeuds.filter(n => n.role === r);
+const nomDe = ip => (carte.noeuds.find(n => n.ip === ip) || {}).nom || ip;
+
+// --- Journal -------------------------------------------------------------
+let journalVide = true;
+function evenement(texte, niveau = "") {
+  const ol = $("#evts"); if (journalVide) { ol.replaceChildren(); journalVide = false; }
+  const li = el("li"); li.append(el("time", null, heure()), el("span", niveau, texte));
+  ol.prepend(li); while (ol.children.length > 40) ol.lastChild.remove();
+}
+
+// --- État HAProxy des serveurs applicatifs ----------------------------------
+function classe(statut = "") {
+  if (statut.startsWith("UP")) return statut.includes("/") ? "att" : "ok";
+  if (statut.startsWith("DOWN")) return statut.includes("/") ? "att" : "ko";
+  if (statut === "DRAIN" || statut === "NOLB") return "att";
+  if (statut === "MAINT") return "ko";
+  return "inc";
+}
+function libelle(statut = "") {
+  if (statut === "UP") return "en service";
+  if (statut.startsWith("UP ")) return "défaillance détectée…";
+  if (statut === "DOWN") return "hors service";
+  if (statut.startsWith("DOWN ")) return "retour en cours…";
+  return { DRAIN: "en vidange (drain)", MAINT: "maintenance", NOLB: "en vidange" }[statut] || "inconnu";
+}
+function lireCsv(texte) {
+  const lignes = texte.trim().split("\n");
+  const cols = lignes[0].replace(/^# /, "").split(",");
+  const v = (c, nom) => c[cols.indexOf(nom)];
+  const vus = {};
+  for (const l of lignes.slice(1)) {
+    const c = l.split(",");
+    if (c[0] !== "applis" || c[1] === "BACKEND" || c[1] === "FRONTEND") continue;
+    vus[c[1]] = { statut: v(c, "status"), sessions: +v(c, "scur") || 0, total: +v(c, "stot") || 0,
+                  duree: v(c, "check_duration"), sonde: v(c, "check_status") };
+  }
+  const connus = Object.keys(serveurs).length > 0;
+  for (const [nom, s] of Object.entries(vus)) {
+    const avant = serveurs[nom];
+    if (!avant && connus) evenement(`${nom} ajouté au répartiteur`, "ok");
+    else if (avant && libelle(avant.statut) !== libelle(s.statut))
+      evenement(`${nom} : ${libelle(avant.statut)} → ${libelle(s.statut)}`, classe(s.statut));
+  }
+  for (const nom of Object.keys(serveurs)) if (!vus[nom]) evenement(`${nom} retiré du répartiteur`, "att");
+  serveurs = vus;
+}
+
+// --- Rendu de l'infrastructure ----------------------------------------------
+function noeud(nom, ip, cls, etat, meta) {
+  const d = el("div", "noeud " + cls);
+  const t = el("div", "n-tete"); t.append(el("strong", null, nom), el("span", "ip", ip || ""));
+  d.append(t, el("div", "n-etat", etat));
+  if (meta) d.append(el("div", "n-meta", meta));
+  if (Date.now() - (passages[nom] || 0) < 450) d.classList.add("flash");
+  return d;
+}
+function dessinerInfra() {
+  const e1 = (carte.extensions || []).includes("E1");
+  $("#vip").textContent = e1 && carte.vip ? `adresse virtuelle VRRP ${carte.vip}` : "";
+  $("#lbs").replaceChildren(...role("lb").map(n => {
+    const actif = n.nom === repartiteur;
+    return noeud(n.nom, n.ip, actif ? "ok" : "inc", actif ? "actif · traite le trafic" : (e1 ? "en attente (secours)" : "—"),
+                 actif && e1 ? `porte ${carte.vip}` : null);
+  }));
+  const noms = [...new Set([...role("app").map(n => n.nom), ...Object.keys(serveurs)])].sort();
+  const enService = noms.filter(n => serveurs[n] && classe(serveurs[n].statut) === "ok").length;
+  $("#nb-apps").textContent = noms.length ? `${enService} / ${noms.length} en service` : "";
+  $("#apps").replaceChildren(...noms.map(nom => {
+    const s = serveurs[nom], ip = (carte.noeuds.find(n => n.nom === nom) || {}).ip;
+    if (!s) return noeud(nom, ip, "inc", "état inconnu");
+    const meta = [`${s.total} req.`, s.duree ? `sonde ${s.duree} ms` : s.sonde, versions[nom] ? `v${versions[nom]}` : null].filter(Boolean).join(" · ");
+    return noeud(nom, ip, classe(s.statut), libelle(s.statut), meta);
+  }));
+  $("#bdds").replaceChildren(...[...role("bdd"), ...role("replique")].map(n => {
+    if (primaire === null) return noeud(n.nom, n.ip, "inc", etatGlobal === "ko" ? "aucune primaire joignable" : "…");
+    return n.nom === primaire
+      ? noeud(n.nom, n.ip, "ok", "primaire · lecture et écriture", "répond à la sonde /sante")
+      : noeud(n.nom, n.ip, "inc", "réplique (secours)", "promouvable par scripts/bascule-bdd.sh");
+  }));
+}
+
+// --- Sonde périodique : état HAProxy + /sante --------------------------------
+function etat(cls, texte) {
+  const p = $("#global");
+  if (texte !== p.textContent && etatGlobal !== null) evenement(`Service : ${texte}`, cls);
+  p.className = "pastille " + cls; p.textContent = texte; etatGlobal = cls;
+}
+async function sonder() {
+  try {
+    const [csv, sante] = await Promise.allSettled([requete("/etat-lb;csv"), requete("/sante")]);
+    if (csv.status === "fulfilled" && csv.value.ok) lireCsv(await csv.value.text());
+    if (sante.status !== "fulfilled") { primaire = null; etat("ko", "Répartiteur injoignable"); return; }
+    const r = sante.value, lb = r.headers.get("X-Repartiteur");
+    if (lb && lb !== repartiteur) { if (repartiteur) evenement(`Bascule du répartiteur : ${repartiteur} → ${lb}`, "att"); repartiteur = lb; }
+    let corps = {}; try { corps = await r.json(); } catch (_) { /* page d'erreur */ }
+    if (r.status === 200 && corps.base) {
+      const p = nomDe(corps.base);
+      if (primaire && p !== primaire) evenement(`Bascule de la base : ${primaire} → ${p}`, "att");
+      primaire = p;
+      const tous = Object.values(serveurs), sains = tous.filter(s => classe(s.statut) === "ok").length;
+      if (tous.length && sains < tous.length) etat("att", `Service opérationnel · ${sains}/${tous.length} serveurs`);
+      else etat("ok", "Service opérationnel");
+    } else {
+      if (primaire) evenement(`Base primaire ${primaire} injoignable`, "ko");
+      primaire = null; etat("ko", `Service indisponible (HTTP ${r.status})`);
+    }
+  } catch (_) {
+    etat("ko", "Répartiteur injoignable");
+  } finally {
+    dessinerInfra();
+    $("#maj").textContent = "mis à jour à " + heure();
+    setTimeout(sonder, 1000);
+  }
+}
+
+// --- Consultation d'un résultat --------------------------------------------
+const mention = m => m >= 16 ? "Mention Très bien" : m >= 14 ? "Mention Bien" : m >= 12 ? "Mention Assez bien" : m >= 10 ? "Mention Passable" : "";
+async function consulter(matricule) {
+  const res = $("#res"); res.className = "res"; res.replaceChildren(el("span", "doux", "Recherche…"));
+  const t0 = performance.now();
+  try {
+    const r = await requete("/resultat?matricule=" + encodeURIComponent(matricule), 5000);
+    const ms = Math.round(performance.now() - t0), serveur = r.headers.get("X-Serveur"), lb = r.headers.get("X-Repartiteur");
+    if (serveur) passages[serveur] = Date.now();
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 404) { res.replaceChildren(el("p", "erreur", `Aucun candidat avec le matricule ${matricule}.`)); return; }
+    if (!r.ok) { res.replaceChildren(el("p", "erreur", `Service momentanément indisponible (HTTP ${r.status}). Réessayez dans quelques secondes.`)); return; }
+    const tete = el("div", "res-tete"), id = el("div");
+    id.append(el("div", "nom", j.nom), el("div", "doux", `${j.matricule} · Série ${j.serie}`));
+    tete.append(id, el("span", "badge " + (j.admis ? "ok" : "ko"), j.admis ? "ADMIS" : "AJOURNÉ"));
+    const moy = el("div", "moy"); moy.append(el("span", "val", note.format(j.moyenne)), el("span", "doux", "/ 20"), el("span", "mention", mention(j.moyenne)));
+    const jauge = el("div", "jauge"), rempli = el("div", "rempli");
+    rempli.style.width = "0"; rempli.style.background = j.admis ? "var(--ok)" : "var(--ko)";
+    jauge.append(rempli, el("div", "seuil"));
+    const grad = el("div", "graduation"); grad.append(el("span", null, "0"), el("span", null, "10"), el("span", null, "20"));
+    const trace = el("p", "trace"); trace.append("Servi par ", el("b", null, serveur || "?"), " via ", el("b", null, lb || "?"), ` en ${ms} ms`);
+    res.replaceChildren(tete, moy, jauge, grad, trace);
+    requestAnimationFrame(() => requestAnimationFrame(() => { rempli.style.width = (j.moyenne / 20 * 100) + "%"; }));
+  } catch (_) {
+    res.replaceChildren(el("p", "erreur", "Le service ne répond pas (délai dépassé)."));
+  }
+}
+$("#form").addEventListener("submit", e => { e.preventDefault(); const m = $("#matricule").value.trim().toUpperCase(); if (m) consulter(m); });
+$("#hasard").addEventListener("click", () => {
+  const m = "BF" + String(1 + Math.floor(Math.random() * 50000)).padStart(6, "0");
+  $("#matricule").value = m; consulter(m);
+});
+
+// --- Trafic simulé -----------------------------------------------------------
+let minuteur = null;
+const cpt = { env: 0, ok: 0, err: 0 }, parServeur = {}, secondes = [];
+function seau() {
+  const s = Math.floor(Date.now() / 1000); let b = secondes[secondes.length - 1];
+  if (!b || b.t !== s) { b = { t: s, ok: 0, err: 0 }; secondes.push(b); while (secondes.length > 61) secondes.shift(); }
+  return b;
+}
+async function tir() {
+  cpt.env++;
+  try {
+    const r = await requete("/info", 3000); if (!r.ok) throw new Error(r.status);
+    const j = await r.json(); cpt.ok++; seau().ok++;
+    parServeur[j.serveur] = (parServeur[j.serveur] || 0) + 1; versions[j.serveur] = j.version; passages[j.serveur] = Date.now();
+  } catch (_) { cpt.err++; seau().err++; }
+}
+$("#go").addEventListener("click", () => {
+  const b = $("#go");
+  if (minuteur) { clearInterval(minuteur); minuteur = null; b.textContent = "Démarrer"; b.classList.remove("arret"); evenement("Trafic simulé arrêté"); return; }
+  const debit = +$("#debit").value;
+  minuteur = setInterval(tir, 1000 / debit); b.textContent = "Arrêter"; b.classList.add("arret");
+  evenement(`Trafic simulé démarré (${debit} req/s)`);
+});
+$("#debit").addEventListener("change", () => { if (minuteur) { clearInterval(minuteur); minuteur = setInterval(tir, 1000 / +$("#debit").value); } });
+
+function dessinerTrafic() {
+  $("#c-env").textContent = cpt.env; $("#c-ok").textContent = cpt.ok; $("#c-err").textContent = cpt.err;
+  const fini = cpt.ok + cpt.err;
+  $("#c-taux").textContent = fini ? (100 * cpt.ok / fini).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " %" : "—";
+  // Histogramme des 60 dernières secondes
+  const cv = $("#courbe"), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement), maintenant = Math.floor(Date.now() / 1000);
+  const parT = Object.fromEntries(secondes.map(b => [b.t, b]));
+  const serie = Array.from({ length: 60 }, (_, i) => parT[maintenant - 59 + i] || { ok: 0, err: 0 });
+  const max = Math.max(5, ...serie.map(b => b.ok + b.err)), lb = w / 60;
+  ctx.strokeStyle = css.getPropertyValue("--bord"); ctx.beginPath(); ctx.moveTo(0, h - .5); ctx.lineTo(w, h - .5); ctx.stroke();
+  serie.forEach((b, i) => {
+    const hOk = (h - 4) * b.ok / max, hErr = (h - 4) * b.err / max, x = i * lb + 1, l = Math.max(1, lb - 2);
+    ctx.fillStyle = css.getPropertyValue("--ok"); ctx.fillRect(x, h - hOk, l, hOk);
+    ctx.fillStyle = css.getPropertyValue("--ko"); ctx.fillRect(x, h - hOk - hErr, l, hErr);
+  });
+  // Répartition par serveur
+  const total = Object.values(parServeur).reduce((a, b) => a + b, 0);
+  $("#barres").replaceChildren(...Object.keys(parServeur).sort().map(s => {
+    const d = el("div", "barre"), f = el("div", "fond"), p = el("div", "plein");
+    p.style.width = (100 * parServeur[s] / total) + "%"; f.append(p);
+    d.append(el("span", null, s), f, el("span", "n", `${parServeur[s]} · ${Math.round(100 * parServeur[s] / total)} %`));
+    return d;
+  }));
+}
+setInterval(dessinerTrafic, 500);
+
+// --- Démarrage ----------------------------------------------------------------
+(async () => {
+  try { const r = await requete("/noeuds.json"); if (r.ok) carte = await r.json(); } catch (_) { /* carte facultative */ }
+  const pied = $("#pied"), obs = role("obs")[0];
+  pied.append(`Groupe ${carte.groupe ?? "?"} · réseau ${carte.reseau ?? "?"} · interface servie par le répartiteur`);
+  if (obs) { const a = el("a", null, "tableau de bord Grafana"); a.href = `http://${obs.ip}:3000`; a.target = "_blank"; a.rel = "noopener"; pied.append(" · ", a); }
+  sonder(); dessinerTrafic();
+})();
+</script>
+</body>
+</html>
