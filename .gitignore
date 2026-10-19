@@ -1,0 +1,19 @@
+# Secrets : jamais versionnés (R7)
+.env
+
+# État local de Vagrant
+.vagrant/
+
+# Fichier engendré par le Vagrantfile à chaque exécution
+config/noeuds.yml
+
+# Cache local des paquets .deb partagé entre les VM
+.cache/
+
+# Journaux bruts des scénarios : à conserver hors dépôt, sauf ceux retenus
+# pour le dossier (git add -f mesures/xxx.log)
+mesures/*.log
+mesures/*.sha
+
+# Python
+__pycache__/
