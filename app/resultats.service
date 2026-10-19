@@ -1,0 +1,20 @@
+[Unit]
+Description=RÉSULTATS-BF — service applicatif sans état
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=resultats
+Group=resultats
+EnvironmentFile=/etc/resultats/app.env
+ExecStart=/usr/bin/python3 /opt/resultats/resultats.py
+Restart=always
+RestartSec=1
+# Aucun fichier local : le service n'a besoin d'écrire nulle part
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
